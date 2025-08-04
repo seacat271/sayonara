@@ -1,0 +1,72 @@
+<input type="file" id="pdf-upload" accept=".pdf" />
+<pre id="output"></pre>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+
+<script>
+  document
+    .getElementById("pdf-upload")
+    .addEventListener("change", function (event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const fileReader = new FileReader();
+
+      fileReader.onload = function () {
+        const typedarray = new Uint8Array(fileReader.result);
+
+        pdfjsLib.getDocument(typedarray).promise.then(async function (pdf) {
+          let allText = "";
+          for (let i = 1; i <= pdf.numPages; i++) {
+            const page = await pdf.getPage(i);
+            const textContent = await page.getTextContent();
+            const pageText = textContent.items
+              .map((item) => item.str)
+              .join(" ");
+            allText += pageText + "\n\n";
+          }
+
+          // Витяг ключових даних
+          const result = extractFields(allText);
+          document.getElementById("output").textContent = JSON.stringify(
+            result,
+            null,
+            2
+          );
+        });
+      };
+
+      fileReader.readAsArrayBuffer(file);
+    });
+
+  function extractFields(text) {
+    const result = {};
+
+    result["Номер провадження"] =
+      (text.match(/Номер кримінального провадження:\s*(\d+)/) || [])[1] ||
+      "не знайдено";
+
+    result["Дата реєстрації"] =
+      (text.match(/Дата реєстрації провадження.*?(\d{2}\.\d{2}\.\d{4})/) ||
+        [])[1] || "не знайдено";
+
+    result["Стаття ККУ"] =
+      (text.match(/КК України.*?(СТ\.\d+\s?Ч\.\d+)/) || [])[1] || "не знайдено";
+
+    const sleduchiMatch = text.match(
+      /ПІБ слідчого.*?:\s*([\s\S]*?)ПІБ прокурора/
+    );
+    result["Слідчі"] = sleduchiMatch
+      ? sleduchiMatch[1].split(",").map((s) => s.trim())
+      : [];
+
+    const prokuroryMatch = text.match(
+      /ПІБ прокурора.*?:\s*([\s\S]*?)Підпис реєстратора/
+    );
+    result["Прокурори"] = prokuroryMatch
+      ? prokuroryMatch[1].split(",").map((s) => s.trim())
+      : [];
+
+    return result;
+  }
+</script>

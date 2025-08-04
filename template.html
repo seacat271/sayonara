@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="uk">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Word генератор</title>
+  </head>
+  <body>
+    <input type="file" id="pdf-upload" accept=".pdf" />
+    <pre id="output"></pre>
+    <h2>Генерація Word-документа із шаблону</h2>
+
+    <button id="generate">Генерувати документ</button>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/pizzip@3.2.0/dist/pizzip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/docxtemplater/3.38.0/docxtemplater.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+
+    <script>
+      fetch("./dictionary.json")
+        .then((res) => res.json())
+        .then((data) => {
+          console.log("Словник завантажено:", data);
+        })
+        .catch((err) => console.error("Помилка завантаження JSON:", err));
+      let data = null;
+      document
+
+        .getElementById("pdf-upload")
+        .addEventListener("change", function (event) {
+          const file = event.target.files[0];
+          if (!file) return;
+
+          const fileReader = new FileReader();
+
+          fileReader.onload = function () {
+            const typedarray = new Uint8Array(fileReader.result);
+
+            pdfjsLib.getDocument(typedarray).promise.then(async function (pdf) {
+              let allText = "";
+              for (let i = 1; i <= pdf.numPages; i++) {
+                const page = await pdf.getPage(i);
+                const textContent = await page.getTextContent();
+                const pageText = textContent.items
+                  .map((item) => item.str)
+                  .join(" ");
+                allText += pageText + "\n\n";
+              }
+
+              // Витяг ключових даних
+              const result = extractFields(allText);
+              data = result;
+              document.getElementById("output").textContent = JSON.stringify(
+                result,
+                null,
+                2
+              );
+            });
+          };
+
+          fileReader.readAsArrayBuffer(file);
+        });
+
+      function extractFields(text) {
+        const result = {};
+
+        result["Номер провадження"] =
+          (text.match(/Номер кримінального провадження:\s*(\d+)/) || [])[1] ||
+          "не знайдено";
+
+        result["Дата реєстрації"] =
+          (text.match(/Дата реєстрації провадження.*?(\d{2}\.\d{2}\.\d{4})/) ||
+            [])[1] || "не знайдено";
+
+        result["Стаття ККУ"] =
+          (text.match(/КК України.*?(СТ\.\d+\s?Ч\.\d+)/) || [])[1] ||
+          "не знайдено";
+
+        const sleduchiMatch = text.match(
+          /ПІБ слідчого.*?:\s*([\s\S]*?)ПІБ прокурора/
+        );
+        result["Слідчі"] = sleduchiMatch
+          ? sleduchiMatch[1].split(",").map((s) => s.trim())
+          : [];
+
+        const prokuroryMatch = text.match(
+          /ПІБ прокурора.*?:\s*([\s\S]*?)Підпис реєстратора/
+        );
+        result["Прокурори"] = prokuroryMatch
+          ? prokuroryMatch[1].split(",").map((s) => s.trim())
+          : [];
+        const obstavynyMatch = text.match(
+          /Короткий виклад обставин.*?:\s*([\s\S]*?)\s+ПІБ, дата народження|ПІБ, дата народження/i
+        );
+        result["Короткий виклад обставин"] = obstavynyMatch
+          ? obstavynyMatch[1].trim()
+          : "не знайдено";
+
+        return result;
+      }
+
+      let templateBinary = null;
+
+      // Завантажити шаблон із папки
+      fetch("постанова група слідчих.docx")
+        .then((res) => res.arrayBuffer())
+        .then((buffer) => {
+          groupInvestigators = buffer;
+          console.log("✅ Шаблон завантажено");
+        })
+        .catch((err) => {
+          alert("⛔ Помилка завантаження шаблону");
+          console.error(err);
+        });
+      fetch("повідомлення про початок ДР.docx")
+        .then((res) => res.arrayBuffer())
+        .then((buffer) => {
+          startingNotice = buffer;
+          console.log("✅ Шаблон завантажено");
+        })
+        .catch((err) => {
+          alert("⛔ Помилка завантаження шаблону");
+          console.error(err);
+        });
+
+      document
+        .getElementById("generate")
+        .addEventListener("click", function () {
+          if (!startingNotice) {
+            alert("⛔ Спочатку завантаж шаблон!");
+            return;
+          }
+          function getQualification(input) {
+            const match = input.match(/СТ\.?(\d+)\s+Ч\.?(\d+)/i);
+            if (match) {
+              const stattya = match[1];
+              const chastyna = match[2];
+              return `ч.${chastyna} ст.${stattya}`;
+            } else {
+              return "Неправильний формат";
+            }
+          }
+          function lowercaseFirstLetter(text) {
+            if (!text || typeof text !== "string") return text;
+            return text.charAt(0).toLowerCase() + text.slice(1);
+          }
+          function getFormattedUADate() {
+            const monthsUA = [
+              "січня",
+              "лютого",
+              "березня",
+              "квітня",
+              "травня",
+              "червня",
+              "липня",
+              "серпня",
+              "вересня",
+              "жовтня",
+              "листопада",
+              "грудня",
+            ];
+
+            const today = new Date();
+            const day = String(today.getDate()).padStart(2, "0");
+            const month = monthsUA[today.getMonth()];
+            const year = today.getFullYear();
+
+            return `${day} ${month} ${year}`;
+          }
+          function getDetectiveInfo(initials) {
+            if (detectiveDictionary.hasOwnProperty(initials)) {
+              return detectiveDictionary[initials]; // масив із називного та родового
+            } else {
+              return null; // або "Не знайдено"
+            }
+          }
+          const zipGroupInvestigators = new PizZip(groupInvestigators);
+          const docGroupInvestigators = new window.docxtemplater().loadZip(
+            zipGroupInvestigators
+          );
+
+          const zipStartingNotice = new PizZip(startingNotice);
+          const docStartingNotice = new window.docxtemplater().loadZip(
+            zipStartingNotice
+          );
+
+          const caseNumber = data["Номер провадження"];
+          const dateReg = data["Дата реєстрації"];
+          const qualification = getQualification(data["Стаття ККУ"]);
+          const currentDate = getFormattedUADate();
+          const seniorInvestigator = getDetectiveInfo(data["Слідчі"][0])[1];
+          const fabula = lowercaseFirstLetter(data["Короткий виклад обставин"]);
+
+          docGroupInvestigators.setData({
+            caseNumber,
+            dateReg,
+            qualification,
+            currentDate,
+            seniorInvestigator,
+          });
+          docStartingNotice.setData({
+            caseNumber,
+            dateReg,
+            qualification,
+            seniorInvestigator,
+            fabula,
+          });
+
+          try {
+            docGroupInvestigators.render();
+          } catch (error) {
+            alert("❌ Помилка при генерації документа");
+            console.error(error);
+            return;
+          }
+          try {
+            docStartingNotice.render();
+          } catch (error) {
+            alert("❌ Помилка при генерації документа");
+            console.error(error);
+            return;
+          }
+          const outGroupInvestigators = docGroupInvestigators
+            .getZip()
+            .generate({ type: "blob" });
+          saveAs(
+            outGroupInvestigators,
+            `постанова групи слідчих ${caseNumber}.docx`
+          );
+          const outStartingNotice = docStartingNotice
+            .getZip()
+            .generate({ type: "blob" });
+          saveAs(
+            outStartingNotice,
+            `повідомлення про початок ДР ${caseNumber}.docx`
+          );
+        });
+    </script>
+  </body>
+</html>
