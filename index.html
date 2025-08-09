@@ -9,13 +9,15 @@
       <ul style="list-style: none; display: flex; gap: 20px">
         <li><a href="index.html"> Початкові документи </a></li>
         <li><a href="request_page.html"> Сторінка запитів</a></li>
-        <li><a href="request_page.html"> Сторінка тимчиків</a></li>
+        <li><a href="security_measures _page.html"> Сторінка тимчиків</a></li>
         <li><a href="request_page.html">Сторінка оглядів</a></li>
       </ul>
     </header>
 
     <input type="file" id="pdf-upload" accept=".pdf" />
-    <pre id="output"></pre>
+
+    <pre id="output" style="font-size: 40px"></pre>
+
     <h2>Створити документи після внесення провадження</h2>
 
     <button id="generate">Генерувати документ</button>
@@ -62,11 +64,10 @@
               // Витяг ключових даних
               const result = extractFields(allText);
               data = result;
-              document.getElementById("output").textContent = JSON.stringify(
-                result,
-                null,
-                2
-              );
+
+              document.getElementById(
+                "output"
+              ).textContent = `Провадження №${result["Номер провадження"]}`;
             });
           };
 

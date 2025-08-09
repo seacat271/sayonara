@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="uk">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Word генератор</title>
+  </head>
+  <body>
+    <header style="margin: 40px">
+      <ul style="list-style: none; display: flex; gap: 20px">
+        <li><a href="index.html"> Початкові документи </a></li>
+        <li><a href="request_page.html"> Сторінка запитів</a></li>
+        <li><a href="security_measures _page.html"> Сторінка тимчиків</a></li>
+        <li><a href="request_page.html">Сторінка оглядів</a></li>
+      </ul>
+    </header>
+
+    <input type="file" id="csv-upload" accept=".csv" />
+    <pre id="output"></pre>
+
+    <script>
+      document
+        .getElementById("csv-upload")
+        .addEventListener("change", function (event) {
+          const file = event.target.files[0];
+          if (!file) return;
+
+          const reader = new FileReader();
+          reader.onload = function (e) {
+            const text = e.target.result;
+            const data = parseCSV(text);
+            const aggregated = aggregateData(data);
+
+            // Сортуємо за сумою (від більшої до меншої)
+            aggregated.sort((a, b) => b.total_amount - a.total_amount);
+
+            document.getElementById("output").textContent = JSON.stringify(
+              aggregated,
+              null,
+              2
+            );
+            downloadJSON(aggregated, "suppliers.json");
+          };
+          reader.readAsText(file, "windows-1251");
+        });
+
+      function parseCSV(csvText) {
+        const lines = csvText
+          .split(/\r?\n/)
+          .filter((line) => line.trim() !== "");
+        const headers = lines[0].split(";");
+
+        const nameIdx = headers.indexOf("Найменування/ПІБ (Продавець)");
+        const codeIdx = headers.indexOf("Податковий № (Продавець)"); // змінено
+        const dateIdx = headers.indexOf("Дата виписки");
+        const amountIdx = headers.indexOf(
+          "Обсяги постачання (база оподаткування) без урахування податку на додану вартість"
+        );
+        const statusIdx = headers.indexOf("Статус в ЄРПН");
+
+        const results = [];
+
+        for (let i = 1; i < lines.length; i++) {
+          const cols = lines[i].split(";");
+          if (
+            cols.length <=
+            Math.max(nameIdx, codeIdx, dateIdx, amountIdx, statusIdx)
+          )
+            continue;
+
+          const status = cols[statusIdx]?.trim().toLowerCase();
+          if (status !== "зареєстровано") continue;
+
+          results.push({
+            name: shortenName(cols[nameIdx]?.trim()),
+            code: cols[codeIdx]?.trim(),
+            period: cols[dateIdx]?.trim(),
+            amount: parseFloat(cols[amountIdx]?.replace(",", ".") || 0),
+          });
+        }
+        return results;
+      }
+
+      function shortenName(name) {
+        return name
+          .replace(/^ТОВАРИСТВО З ОБМЕЖЕНОЮ ВІДПОВІДАЛЬНІСТЮ/gi, "ТОВ")
+          .replace(/^ПРИВАТНЕ АКЦІОНЕРНЕ ТОВАРИСТВО/gi, "ПрАТ")
+          .replace(/^ПУБЛІЧНЕ АКЦІОНЕРНЕ ТОВАРИСТВО/gi, "ПАТ")
+          .trim();
+      }
+
+      function aggregateData(data) {
+        const grouped = {};
+
+        data.forEach((item) => {
+          const key = `${item.name}_${item.code}`;
+          if (!grouped[key]) {
+            grouped[key] = {
+              name: item.name,
+              code: item.code,
+              period_start: item.period,
+              period_end: item.period,
+              total_amount: 0,
+            };
+          }
+          const g = grouped[key];
+          g.total_amount += item.amount;
+          if (compareDates(item.period, g.period_start) < 0)
+            g.period_start = item.period;
+          if (compareDates(item.period, g.period_end) > 0)
+            g.period_end = item.period;
+        });
+
+        // множимо на 1.2 для податків
+        Object.values(grouped).forEach((g) => {
+          g.total_amount = parseFloat((g.total_amount * 1.2).toFixed(2));
+        });
+
+        return Object.values(grouped);
+      }
+
+      function compareDates(d1, d2) {
+        const [day1, month1, year1] = d1.split(".").map(Number);
+        const [day2, month2, year2] = d2.split(".").map(Number);
+        const date1 = new Date(year1, month1 - 1, day1);
+        const date2 = new Date(year2, month2 - 1, day2);
+        return date1 - date2;
+      }
+    </script>
+  </body>
+</html>
